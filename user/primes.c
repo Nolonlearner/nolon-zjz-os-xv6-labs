@@ -30,7 +30,7 @@ void prime(int pi[])
 int main(int argc, char *argv[])
 {
     int pi[2];
-    pipe(pi);
+    pipe(pi);//create a pipe
     if (fork())
     {
         for (int i = 2; i <= 35; i++)
