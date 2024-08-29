@@ -1,0 +1,27 @@
+Changes as follow:
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   Makefile
+	modified:   kernel/defs.h
+	modified:   kernel/printf.c
+	modified:   kernel/proc.c
+	modified:   kernel/proc.h
+	modified:   kernel/riscv.h
+	modified:   kernel/syscall.c
+	modified:   kernel/syscall.h
+	modified:   kernel/sysproc.c
+	modified:   kernel/trap.c
+	modified:   user/call.c
+	modified:   user/sh.c
+	modified:   user/user.h
+	modified:   user/usys.pl
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	answers-traps.txt
+	kernel/.proc.h.swp
+	solutions/RISC-V assembly.txt
+	time.txt
+
+
