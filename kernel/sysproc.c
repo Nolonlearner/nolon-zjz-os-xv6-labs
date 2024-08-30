@@ -7,6 +7,8 @@
 #include "spinlock.h"
 #include "proc.h"
 
+int pgaccess(pagetable_t pagetable, uint64 start_va, int page_num, uint64 result_va);
+
 uint64
 sys_exit(void)
 {
@@ -75,35 +77,47 @@ sys_sleep(void)
   return 0;
 }
 
+// 实现 sys_kill
+uint64
+sys_kill(void)
+{
+    int pid;
+    if (argint(0, &pid) < 0)
+        return -1;
+    return kill(pid);
+}
 
-#ifdef LAB_PGTBL
+// 实现 sys_uptime
+uint64
+sys_uptime(void)
+{
+    uint64 xticks;
+    acquire(&tickslock);
+    xticks = ticks;
+    release(&tickslock);
+    return xticks;
+}
+
 int
 sys_pgaccess(void)
 {
   // lab pgtbl: your code here.
+  uint64 start_va;
+  if(argaddr(0, &start_va) < 0)
+    return -1;
+
+  int page_num;
+  if(argint(1, &page_num) < 0)
+    return -1;
+
+  uint64 result_va;
+  if(argaddr(2, &result_va) < 0)
+    return -1;
+
+  struct proc *p = myproc();
+  if(pgaccess(p->pagetable,start_va,page_num,result_va) < 0)
+    return -1;
+
   return 0;
 }
-#endif
 
-uint64
-sys_kill(void)
-{
-  int pid;
-
-  if(argint(0, &pid) < 0)
-    return -1;
-  return kill(pid);
-}
-
-// return how many clock tick interrupts have occurred
-// since start.
-uint64
-sys_uptime(void)
-{
-  uint xticks;
-
-  acquire(&tickslock);
-  xticks = ticks;
-  release(&tickslock);
-  return xticks;
-}

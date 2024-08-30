@@ -158,3 +158,9 @@ syscall(void)
     p->trapframe->a0 = -1;
   }
 }
+
+extern uint64 sys_kill(void);
+extern uint64 sys_uptime(void);
+
+
+

@@ -127,6 +127,14 @@ found:
     return 0;
   }
 
+//分配共享内存页
+  if((p->usyscall=(struct usyscall *)kalloc())==0){
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+  memmove(p->usyscall,&p->pid,8);
+
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
   if(p->pagetable == 0){
@@ -153,6 +161,8 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+  if(p->usyscall)
+    kfree((void*)p->usyscall);//释放共享内存块
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
@@ -168,18 +178,19 @@ freeproc(struct proc *p)
 
 // Create a user page table for a given process,
 // with no user memory, but with trampoline pages.
+//增加在内核中共享内存页的初始化，以及对共享内存块的页表初始化。
 pagetable_t
 proc_pagetable(struct proc *p)
 {
-  pagetable_t pagetable;
 
+  pagetable_t pagetable;
+ 
   // An empty page table.
   pagetable = uvmcreate();
   if(pagetable == 0)
     return 0;
-
-  // map the trampoline code (for system call return)
-  // at the highest user virtual address.
+ 
+  // 将跳板代码（用于系统调用返回）映射到最高的用户虚拟地址。
   // only the supervisor uses it, on the way
   // to/from user space, so not PTE_U.
   if(mappages(pagetable, TRAMPOLINE, PGSIZE,
@@ -187,15 +198,24 @@ proc_pagetable(struct proc *p)
     uvmfree(pagetable, 0);
     return 0;
   }
-
-  // map the trapframe just below TRAMPOLINE, for trampoline.S.
+ 
+  // 将陷阱帧映射到 TRAMPOLINE 之下，供 trampoline.S 使用。
   if(mappages(pagetable, TRAPFRAME, PGSIZE,
               (uint64)(p->trapframe), PTE_R | PTE_W) < 0){
     uvmunmap(pagetable, TRAMPOLINE, 1, 0);
     uvmfree(pagetable, 0);
     return 0;
   }
-
+ 
+  // 将 USYSCALL 映射到 TRAPFRAME 之下。
+  if(mappages(pagetable, USYSCALL, PGSIZE,
+               (uint64)(p->usyscall), PTE_R | PTE_U) < 0){
+    uvmunmap(pagetable, TRAMPOLINE, 1, 0);
+    uvmunmap(pagetable, TRAPFRAME, 1, 0);
+    uvmfree(pagetable, 0);
+    return 0;
+  }
+ 
   return pagetable;
 }
 
@@ -206,6 +226,7 @@ proc_freepagetable(pagetable_t pagetable, uint64 sz)
 {
   uvmunmap(pagetable, TRAMPOLINE, 1, 0);
   uvmunmap(pagetable, TRAPFRAME, 1, 0);
+  uvmunmap(pagetable, USYSCALL, 1, 0);//释放页表中共享内存页项
   uvmfree(pagetable, sz);
 }
 

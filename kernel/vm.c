@@ -432,3 +432,58 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+
+void 
+printwalk(pagetable_t pagetable, uint level) {
+  char* prefix;
+  if (level == 2) prefix = "..";
+  else if (level == 1) prefix = ".. ..";
+  else prefix = ".. .. ..";
+  for(int i = 0; i < 512; i++){ // 每个页表有512项
+    pte_t pte = pagetable[i];
+    if(pte & PTE_V){ // 该页表项有效
+      uint64 pa = PTE2PA(pte); // 将虚拟地址转换为物理地址
+      printf("%s%d: pte %p pa %p\n", prefix, i, pte, pa);
+      if((pte & (PTE_R|PTE_W|PTE_X)) == 0){ // 有下一级页表
+         printwalk((pagetable_t)pa, level - 1);
+      }
+    }
+  }
+}
+ 
+ //遍历页表并打印
+void
+vmprint(pagetable_t pagetable) {
+  printf("page table %p\n", pagetable);
+  printwalk(pagetable, 2);
+}
+
+
+int pgaccess(pagetable_t pagetable, uint64 start_va, int page_num, uint64 result_va) {
+  if (page_num > 64) {
+    panic("pgaccess: too many pages");
+    return -1;
+  }
+
+  uint64 va = start_va;
+  unsigned int bitmask = 0;
+
+  for (int count = 0; count < page_num; ++count, va += PGSIZE) {
+    pte_t *pte = walk(pagetable, va, 0);
+    if (pte == 0) {
+      return -1; // 页表项不存在，直接返回错误
+    }
+
+    if ((*pte & PTE_A)) {
+      bitmask |= (1 << count);
+      *pte &= ~PTE_A; // 清除访问位
+    }
+  }
+
+  if (copyout(pagetable, result_va, (char*)&bitmask, sizeof(bitmask)) < 0) {
+    return -1; // 拷贝失败，返回错误
+  }
+
+  return 0;
+}
+
