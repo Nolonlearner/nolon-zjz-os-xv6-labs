@@ -6,6 +6,8 @@
 #include "defs.h"
 #include "fs.h"
 
+extern pte_t* walk(pagetable_t, uint64, int);
+
 /*
  * the kernel's page table.
  */
@@ -148,8 +150,8 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   for(;;){
     if((pte = walk(pagetable, a, 1)) == 0)
       return -1;
-    if(*pte & PTE_V)
-      panic("mappages: remap");
+   // if(*pte & PTE_V)
+    //  panic("mappages: remap");
     *pte = PA2PTE(pa) | perm | PTE_V;
     if(a == last)
       break;
@@ -297,32 +299,35 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 // physical memory.
 // returns 0 on success, -1 on failure.
 // frees any allocated pages on failure.
+
 int
 uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 {
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
       panic("uvmcopy: pte should exist");
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
-    pa = PTE2PA(*pte);
+    // 设置父进程的PTE_W为不可写，且为COW页
+    *pte = ((*pte) & (~PTE_W)) | PTE_COW; 
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+    pa = PTE2PA(*pte);  
+    // 不为子进程分配内存，指向pa，页表属性设置为flags即可
+    if(mappages(new, i, PGSIZE, pa, flags) != 0) {
       goto err;
     }
+    kaddref((void*)pa);
   }
   return 0;
 
  err:
+  // 当发生错误时，是否需要恢复错误之前对父进程
+  // 页表的修改？如果不恢复，后面的程序是否能够纠正？
+  // 在设计后面的程序时需要考虑到这一点
   uvmunmap(new, 0, i / PGSIZE, 1);
   return -1;
 }
@@ -340,30 +345,8 @@ uvmclear(pagetable_t pagetable, uint64 va)
   *pte &= ~PTE_U;
 }
 
-// Copy from kernel to user.
-// Copy len bytes from src to virtual address dstva in a given page table.
-// Return 0 on success, -1 on error.
-int
-copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
-{
-  uint64 n, va0, pa0;
 
-  while(len > 0){
-    va0 = PGROUNDDOWN(dstva);
-    pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
-    n = PGSIZE - (dstva - va0);
-    if(n > len)
-      n = len;
-    memmove((void *)(pa0 + (dstva - va0)), src, n);
-
-    len -= n;
-    src += n;
-    dstva = va0 + PGSIZE;
-  }
-  return 0;
-}
+extern pte_t* walk(pagetable_t, uint64, int);
 
 // Copy from user to kernel.
 // Copy len bytes to dst from virtual address srcva in a given page table.
@@ -431,4 +414,59 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+// Copy from kernel to user.
+// Copy len bytes from src to virtual address dstva in a given page table.
+// Return 0 on success, -1 on error.
+int
+copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
+{
+  uint64 n, va0, pa0;
+  pte_t* pte;    // add
+
+  while(len > 0){
+    va0 = PGROUNDDOWN(dstva);
+    if(va0 >= MAXVA)  
+      return -1;
+    if((pte = walk(pagetable, va0, 0)) == 0)
+      return -1;
+    if (((*pte & PTE_V) == 0) || ((*pte & PTE_U)) == 0) 
+      return -1;
+    pa0 = PTE2PA(*pte);
+    if(((*pte & PTE_W) == 0) && (*pte & PTE_COW)) {
+      acquire_refcnt();
+      if(kgetref((void*)pa0) == 1) {
+        *pte = (*pte | PTE_W) & (~PTE_COW);       
+      } else {        
+        char* mem = kalloc();
+        if(mem == 0) {
+          printf("copyout(): memery alloc fault\n");
+          release_refcnt();
+          return -1;
+        }
+        memmove(mem, (void*)pa0, PGSIZE);
+        uint newflags = (PTE_FLAGS(*pte) & (~PTE_COW)) | PTE_W;
+        if(mappages(pagetable, va0, PGSIZE, (uint64)mem, newflags) != 0) {
+          kfree(mem);
+          release_refcnt();
+          return -1;
+      }
+      kfree((void*)pa0);
+      }    
+      release_refcnt();
+    }
+    pa0 = walkaddr(pagetable, va0);
+    if(pa0 == 0)
+      return -1;
+    n = PGSIZE - (dstva - va0);
+    if(n > len)
+      n = len;
+    memmove((void *)(pa0 + (dstva - va0)), src, n);
+
+    len -= n;
+    src += n;
+    dstva = va0 + PGSIZE;
+  }
+  return 0;
 }
