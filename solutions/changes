@@ -1,0 +1,14 @@
+On branch fs
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   kernel/file.h
+	modified:   kernel/fs.c
+	modified:   kernel/fs.h
+	modified:   user/sh.c
+
+no changes added to commit (use "git add" and/or "git commit -a")
+
+
+
+
